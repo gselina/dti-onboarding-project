@@ -1,19 +1,30 @@
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+// backend/firebase.ts
+
 import * as dotenv from "dotenv";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+import * as admin from "firebase-admin";
+import { readFileSync } from "fs";
+import { join } from "path";
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.AUTH_DOMAIN,
-  projectId: process.env.PROJECT_ID,
-  storageBucket: process.env.STORAGE_BUCKET,
-  messagingSenderId: process.env.MESSAGING_SENDER_ID,
-  appId: process.env.APP_ID,
-};
+// Load environment variables
+dotenv.config();
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Initialize Firebase Admin SDK
+if (!admin.apps.length) {
+  try {
+    // Load service account key
+    const serviceAccountPath = join(__dirname, "serviceAccountKey.json");
+    const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, "utf8"));
+    
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    
+    console.log("Firebase Admin initialized successfully");
+  } catch (error) {
+    console.error("Error initializing Firebase Admin:", error);
+    throw error;
+  }
+}
+
+// Export Firestore instance (bypasses security rules)
+export const db = admin.firestore();
