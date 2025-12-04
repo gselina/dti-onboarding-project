@@ -118,10 +118,17 @@ const HomePage = () => {
           </Text>
           <Button
             size="lg"
-            style={{
+            variant="filled"
+            sx={{
               backgroundColor: "#000000",
               color: "#FFFFFF",
               padding: "12px 32px",
+              border: "1px solid #000000",
+              transition: "background-color 1000ms ease, color 1000ms ease",
+              "&:hover": {
+                backgroundColor: "#FFFFFF",
+                color: "#000000",
+              },
             }}
           >
             Reserve a time slot
@@ -299,12 +306,17 @@ const HomePage = () => {
                       href="https://scl.cornell.edu/residential-life/service-centers-and-mail/service-center-north-campus"
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{
+                      sx={{
                         backgroundColor: "#FAF7F2",
                         cursor: "pointer",
                         minHeight: "120px",
                         border: "1px solid #ECE5E2",
                         borderRadius: "10px",
+                        transition:
+                          "background-color 1000ms ease, color 1000ms ease",
+                        "&:hover": {
+                          backgroundColor: "#D9D0CC",
+                        },
                       }}
                     >
                       <Stack spacing="xs" align="center">
@@ -328,12 +340,17 @@ const HomePage = () => {
                       component="a"
                       href="mailto:scl-student-srv@mail.scl.cornell.edu"
                       p="md"
-                      style={{
+                      sx={{
                         backgroundColor: "#FAF7F2",
                         cursor: "pointer",
                         minHeight: "120px",
                         border: "1px solid #ECE5E2",
                         borderRadius: "10px",
+                        transition:
+                          "background-color 1000ms ease, color 1000ms ease",
+                        "&:hover": {
+                          backgroundColor: "#D9D0CC",
+                        },
                       }}
                     >
                       <Stack spacing="xs" align="center">
@@ -354,12 +371,17 @@ const HomePage = () => {
                       component="a"
                       href="mailto:scl-student-srv@mail.scl.cornell.edu"
                       p="md"
-                      style={{
+                      sx={{
                         backgroundColor: "#FAF7F2",
                         cursor: "pointer",
                         minHeight: "120px",
                         border: "1px solid #ECE5E2",
                         borderRadius: "10px",
+                        transition:
+                          "background-color 1000ms ease, color 1000ms ease",
+                        "&:hover": {
+                          backgroundColor: "#D9D0CC",
+                        },
                       }}
                     >
                       <Stack spacing="xs" align="center">
@@ -382,12 +404,17 @@ const HomePage = () => {
                       target="_blank"
                       rel="noopener noreferrer"
                       p="md"
-                      style={{
+                      sx={{
                         backgroundColor: "#FAF7F2",
                         cursor: "pointer",
                         minHeight: "120px",
                         border: "1px solid #ECE5E2",
                         borderRadius: "10px",
+                        transition:
+                          "background-color 1000ms ease, color 1000ms ease",
+                        "&:hover": {
+                          backgroundColor: "#D9D0CC",
+                        },
                       }}
                     >
                       <Stack spacing="xs" align="center">
