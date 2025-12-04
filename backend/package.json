@@ -24,6 +24,7 @@
     },
     "scripts": {
         "dev": "nodemon server.ts",
-        "build": "tsc"
+        "build": "tsc",
+         "populate-slots": "ts-node scripts/populateTimeSlots.ts"
     }
 }

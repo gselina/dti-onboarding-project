@@ -38,3 +38,11 @@ yarn-error.log*
 
 # vercel
 .vercel
+
+# Firebase service account keys
+serviceAccountKey.json
+*.json
+!package.json
+!package-lock.json
+!pnpm-lock.yaml
+!tsconfig.json
