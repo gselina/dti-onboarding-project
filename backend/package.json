@@ -27,7 +27,7 @@
         "build": "tsc",
         "populate:crowd": "ts-node populateCrowdData.ts",
         "populate:packages": "ts-node populatePackageStats.ts",
-        "populate:all": "ts-node populateCrowdData.ts && ts-node populatePackageStats.ts"
+        "populate:all": "ts-node populateCrowdData.ts && ts-node populatePackageStats.ts",
          "populate-slots": "ts-node scripts/populateTimeSlots.ts"
     }
 }
