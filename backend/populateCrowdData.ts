@@ -62,27 +62,9 @@ async function populateCrowdData() {
 
   await batch.commit();
   console.log(`Successfully populated ${readings.length} crowd readings`);
-
-  // Also create a current crowd level document
-  const currentReading = readings[readings.length - 1];
-  await db.collection("crowdLevels").doc("current").set({
-    currentCrowdLevel:
-      currentReading.value >= 30
-        ? "High"
-        : currentReading.value >= 10
-        ? "Medium"
-        : "Low",
-    estimatedWaitTime:
-      currentReading.value >= 30
-        ? "15-30 minutes"
-        : currentReading.value >= 10
-        ? "10-15 minutes"
-        : "0-10 minutes",
-    lastUpdated: admin.firestore.Timestamp.now(),
-    currentValue: currentReading.value,
-  });
-
-  console.log("Successfully created current crowd level document");
+  
+  // Note: crowdLevels collection is no longer needed - frontend calculates
+  // crowd level and wait time dynamically from historical data
 }
 
 populateCrowdData()

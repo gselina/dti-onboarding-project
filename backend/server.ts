@@ -14,9 +14,31 @@ const port = 8080;
 app.use(cors());
 app.use(express.json());
 
+// Helper function to get current time with test override support
+function getCurrentTime(req?: express.Request): Date {
+    // Check query parameter first (for easy testing via URL)
+    if (req?.query.testTime) {
+        const testTime = new Date(req.query.testTime as string);
+        if (!isNaN(testTime.getTime())) {
+            console.log("Using test time from query:", testTime.toISOString());
+            return testTime;
+        }
+    }
+    // Check environment variable (for persistent testing)
+    if (process.env.TEST_TIME) {
+        const testTime = new Date(process.env.TEST_TIME);
+        if (!isNaN(testTime.getTime())) {
+            console.log("Using test time from env:", testTime.toISOString());
+            return testTime;
+        }
+    }
+    // Default to actual current time
+    return new Date();
+}
+
 // Crowd data endpoints
 type CrowdDataPoint = {
-    time: string;
+        time: string;
     value: number;
 };
 
@@ -24,21 +46,20 @@ type CrowdStats = {
     currentCrowdLevel: "Low" | "Medium" | "High";
     estimatedWaitTime: string;
     historicalData: CrowdDataPoint[];
+    previousDayData?: CrowdDataPoint[];
 };
 
 app.get("/api/crowd-levels", async (req, res) => {
     console.log("GET /api/crowd-levels was called");
     try {
-        let currentData = null;
         let historicalData: CrowdDataPoint[] = [];
+
+        // Get current time (with test override support)
+        const now = getCurrentTime(req);
 
         // Try to get data from Firebase
         try {
-            const currentDoc = await db.collection("crowdLevels").doc("current").get();
-            currentData = currentDoc.data();
-
             // Get historical data for the past 24 hours (to ensure we get operation hours data)
-            const now = new Date();
             const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
             const oneDayAgoTimestamp = admin.firestore.Timestamp.fromDate(oneDayAgo);
 
@@ -46,37 +67,73 @@ app.get("/api/crowd-levels", async (req, res) => {
                 .collection("crowdReadings")
                 .where("timestamp", ">=", oneDayAgoTimestamp)
                 .orderBy("timestamp", "asc")
-                .limit(50) // Get more to filter down to operation hours
+                .limit(100) // Get more to filter down to operation hours and previous day
                 .get();
 
             // Filter to only operation hours and get the most recent ones
             const operationHoursData: CrowdDataPoint[] = [];
+            const previousDayData: CrowdDataPoint[] = [];
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            yesterday.setHours(0, 0, 0, 0);
+            const yesterdayEnd = new Date(yesterday);
+            yesterdayEnd.setHours(23, 59, 59, 999);
+
             readingsSnapshot.forEach((doc) => {
                 const data = doc.data();
                 const timestamp = data.timestamp.toDate();
                 // Only include data within RPCC operation hours
                 if (isWithinRPCCHours(timestamp)) {
-                    operationHoursData.push({
+                    const dataPoint = {
                         time: timestamp.toLocaleTimeString("en-US", {
                             hour: "numeric",
                             minute: "2-digit",
                         }),
                         value: data.value,
-                    });
+                    };
+                    
+                    // Check if this data point is from yesterday
+                    if (timestamp >= yesterday && timestamp <= yesterdayEnd) {
+                        previousDayData.push(dataPoint);
+                    } else if (timestamp > yesterdayEnd) {
+                        // Today's data
+                        operationHoursData.push(dataPoint);
+                    }
                 }
             });
             
             // Get the most recent operation hours data (up to 7-11 points depending on day)
             historicalData = operationHoursData.slice(-11); // Max 11 hours in a day (8am-7pm on weekdays)
+            
+            // Sort previous day data by time and limit to same number of points
+            previousDayData.sort((a, b) => {
+                const timeA = new Date(`2000-01-01 ${a.time}`);
+                const timeB = new Date(`2000-01-01 ${b.time}`);
+                return timeA.getTime() - timeB.getTime();
+            });
+            
+            // Store previous day data for prediction
+            const previousDayDataForPrediction = previousDayData.slice(-historicalData.length);
+            
+            // If we have previous day data, include it in the response
+            if (previousDayDataForPrediction.length > 0) {
+                const output: CrowdStats = {
+                    currentCrowdLevel: "Low", // Not used by frontend, kept for API compatibility
+                    estimatedWaitTime: "0-10 minutes", // Not used by frontend, kept for API compatibility
+                    historicalData: historicalData.length > 0 ? historicalData : [],
+                    previousDayData: previousDayDataForPrediction,
+                };
+                return res.json(output);
+            }
         } catch (firebaseError) {
             console.log("Firebase query failed, using mock data:", firebaseError);
         }
 
         // If no data in Firebase, fall back to mock data
-        if (!currentData || historicalData.length === 0) {
+        if (historicalData.length === 0) {
             console.log("No Firebase data found, using mock data");
-            const now = new Date();
             const mockHistoricalData: CrowdDataPoint[] = [];
+            const mockPreviousDayData: CrowdDataPoint[] = [];
             
             // Generate mock data only for operation hours
             for (let i = 6; i >= 0; i--) {
@@ -105,6 +162,46 @@ app.get("/api/crowd-levels", async (req, res) => {
                         minute: "2-digit",
                     }),
                     value: Math.round(crowdValue),
+                });
+            }
+            
+            // Generate mock previous day data (yesterday at same times)
+            const yesterday = new Date(now);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayDayOfWeek = yesterday.getDay();
+            let prevStartHour: number, prevEndHour: number;
+            
+            if (yesterdayDayOfWeek >= 1 && yesterdayDayOfWeek <= 5) {
+                prevStartHour = 8;
+                prevEndHour = 19;
+            } else if (yesterdayDayOfWeek === 6) {
+                prevStartHour = 11;
+                prevEndHour = 19;
+            } else {
+                prevStartHour = 12;
+                prevEndHour = 19;
+            }
+            
+            // Generate previous day data for the same number of hours as today
+            for (let hour = prevStartHour; hour < prevEndHour && mockPreviousDayData.length < mockHistoricalData.length; hour++) {
+                let prevCrowdValue: number;
+                if (hour >= 12 && hour <= 14) {
+                    prevCrowdValue = 30 + Math.random() * 10;
+                } else if (hour >= 15 && hour <= 17) {
+                    prevCrowdValue = 10 + Math.random() * 10;
+                } else {
+                    prevCrowdValue = 1 + Math.random() * 9;
+                }
+                
+                const prevHourDate = new Date(yesterday);
+                prevHourDate.setHours(hour, 0, 0, 0);
+                
+                mockPreviousDayData.push({
+                    time: prevHourDate.toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                    }),
+                    value: Math.round(prevCrowdValue),
                 });
             }
             
@@ -161,12 +258,13 @@ app.get("/api/crowd-levels", async (req, res) => {
                 currentCrowdLevel,
                 estimatedWaitTime,
                 historicalData: mockHistoricalData,
+                previousDayData: mockPreviousDayData.length > 0 ? mockPreviousDayData : undefined,
             });
         }
 
         const output: CrowdStats = {
-            currentCrowdLevel: currentData.currentCrowdLevel,
-            estimatedWaitTime: currentData.estimatedWaitTime,
+            currentCrowdLevel: "Low", // Not used by frontend, kept for API compatibility
+            estimatedWaitTime: "0-10 minutes", // Not used by frontend, kept for API compatibility
             historicalData: historicalData.length > 0 ? historicalData : [],
         };
         

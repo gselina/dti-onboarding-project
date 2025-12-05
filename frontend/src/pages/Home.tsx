@@ -82,12 +82,169 @@ const HomePage = () => {
         return "red";
       case "Medium":
         return "yellow";
-      case "Closed":
-        return "gray";
       default:
         return "green";
     }
   };
+
+  const getCrowdBgColor = (level: string) => {
+    switch (level) {
+      case "High":
+        return "#FFFAFA";
+      case "Medium":
+        return "#FFFCF5";
+      default:
+        return "#F8FFF5";
+    }
+  };
+
+  const getCrowdBorderColor = (level: string) => {
+    switch (level) {
+      case "High":
+        return "#E1B4B4";
+      case "Medium":
+        return "#E1DAB4";
+      default:
+        return "#CAE1B4";
+    }
+  };
+
+  // Generate a deterministic "random" value based on a string seed
+  const seededRandom = (seed: string): number => {
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) {
+      const char = seed.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    // Convert to 0-1 range
+    return Math.abs(hash) / 2147483647;
+  };
+
+  // Generate mock predicted data based on today's historical data
+  const generateMockPredictedData = (
+    historicalData: { time: string; value: number }[]
+  ): { time: string; value: number; predicted?: number }[] => {
+    if (!historicalData || historicalData.length === 0) {
+      return [];
+    }
+
+    // Generate predicted values with significant variation (deterministic based on time)
+    // This simulates what yesterday's traffic might have looked like
+    return historicalData.map((point) => {
+      // Use time as seed for deterministic "random" values
+      const random1 = seededRandom(point.time);
+      const random2 = seededRandom(point.time + "offset");
+
+      // Add significant variation: ±60% of the current value, but keep it within 0-100
+      const variation = (random1 - 0.5) * 1.2; // -60% to +60%
+      // Also add a base offset to make it more different
+      const offset = (random2 - 0.5) * 30; // -15 to +15
+      const predictedValue = Math.max(
+        0,
+        Math.min(100, Math.round(point.value * (1 + variation) + offset))
+      );
+
+      return {
+        ...point,
+        predicted: predictedValue,
+      };
+    });
+  };
+
+  // Filter historical data to only include actual traffic points up to current time
+  const filterDataUpToCurrentTime = (
+    historicalData: { time: string; value: number }[]
+  ): { time: string; value: number }[] => {
+    if (!historicalData || historicalData.length === 0) {
+      return [];
+    }
+
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+
+    return historicalData.filter((point) => {
+      // Parse time string (e.g., "2:00PM" or "11:00AM")
+      const timeStr = point.time.trim().toUpperCase();
+      const isPM = timeStr.includes("PM");
+      const timeMatch = timeStr.match(/(\d+):(\d+)/);
+
+      if (!timeMatch) {
+        return true; // Keep if we can't parse (shouldn't happen)
+      }
+
+      let hour = parseInt(timeMatch[1], 10);
+      const minute = parseInt(timeMatch[2], 10);
+
+      // Convert to 24-hour format
+      if (isPM && hour !== 12) {
+        hour += 12;
+      } else if (!isPM && hour === 12) {
+        hour = 0;
+      }
+
+      // Only keep points up to current time
+      if (hour < currentHour) {
+        return true; // Before current hour, keep it
+      } else if (hour === currentHour) {
+        return minute <= currentMinute; // Same hour, check minutes
+      } else {
+        return false; // After current time, filter it out
+      }
+    });
+  };
+
+  // Filter actual traffic data to only show up to current time
+  const filteredHistoricalData = crowdStats?.historicalData
+    ? filterDataUpToCurrentTime(crowdStats.historicalData)
+    : [];
+
+  // Calculate crowd level from current hour's value in historical data
+  const getCurrentCrowdLevel = (): "Low" | "Medium" | "High" => {
+    if (!filteredHistoricalData || filteredHistoricalData.length === 0) {
+      return "Low";
+    }
+
+    // Get the most recent data point (should be current hour)
+    const currentDataPoint =
+      filteredHistoricalData[filteredHistoricalData.length - 1];
+    const currentValue = currentDataPoint?.value || 0;
+
+    // Determine crowd level based on thresholds
+    if (currentValue >= 30) {
+      return "High";
+    } else if (currentValue >= 10) {
+      return "Medium";
+    } else {
+      return "Low";
+    }
+  };
+
+  // Get current crowd level from historical data
+  const currentCrowdLevel = getCurrentCrowdLevel();
+
+  // Calculate estimated wait time based on current crowd level
+  const getEstimatedWaitTime = (level: "Low" | "Medium" | "High"): string => {
+    switch (level) {
+      case "High":
+        return "20-30 minutes";
+      case "Medium":
+        return "10-20 minutes";
+      case "Low":
+      default:
+        return "0-10 minutes";
+    }
+  };
+
+  const estimatedWaitTime = getEstimatedWaitTime(currentCrowdLevel);
+
+  // Generate predicted data from filtered data (so predicted line also stops at current time)
+  // But predicted values are generated deterministically, so they'll be consistent
+  const chartData =
+    filteredHistoricalData.length > 0
+      ? generateMockPredictedData(filteredHistoricalData)
+      : [];
 
   const isCurrentlyOpen = isWithinRPCCHours();
   const currentDay = new Date().getDay();
@@ -155,8 +312,9 @@ const HomePage = () => {
                   <Paper
                     p="md"
                     style={{
-                      backgroundColor: "#F8FFF5",
-                      border: "1px solid #CAE1B4",
+                      backgroundColor: getCrowdBgColor(currentCrowdLevel),
+                      border:
+                        "1px solid " + getCrowdBorderColor(currentCrowdLevel),
                     }}
                   >
                     <Stack spacing="sm">
@@ -174,21 +332,20 @@ const HomePage = () => {
                             size="lg"
                             style={{
                               fontSize: "14px",
-                              border: "1px solid #E8E3D5",
                             }}
                           >
                             Closed
                           </Badge>
                         ) : (
                           <Badge
-                            color={getCrowdBadgeColor(
-                              crowdStats?.currentCrowdLevel || "Low"
-                            )}
+                            color={getCrowdBadgeColor(currentCrowdLevel)}
                             variant="light"
                             size="lg"
-                            style={{ fontSize: "14px" }}
+                            style={{
+                              fontSize: "14px",
+                            }}
                           >
-                            {crowdStats?.currentCrowdLevel || "Low"} Crowd
+                            {currentCrowdLevel} Crowd
                           </Badge>
                         )}
                       </Group>
@@ -198,8 +355,7 @@ const HomePage = () => {
                         </Text>
                       ) : (
                         <Text size="sm" style={{ color: "#6B5D4F" }}>
-                          Estimated Wait Time:{" "}
-                          {crowdStats?.estimatedWaitTime || "2-5 minutes"}
+                          Estimated Wait Time: {estimatedWaitTime}
                         </Text>
                       )}
                     </Stack>
@@ -231,11 +387,25 @@ const HomePage = () => {
                             {/* @ts-expect-error Recharts LineChart type compatibility */}
                             <LineChart
                               data={
-                                crowdStats?.historicalData || [
-                                  { time: "5:00PM", value: 45 },
-                                  { time: "6:00PM", value: 62 },
-                                  { time: "7:00PM", value: 38 },
-                                ]
+                                chartData.length > 0
+                                  ? chartData
+                                  : [
+                                      {
+                                        time: "5:00PM",
+                                        value: 45,
+                                        predicted: 30,
+                                      },
+                                      {
+                                        time: "6:00PM",
+                                        value: 62,
+                                        predicted: 45,
+                                      },
+                                      {
+                                        time: "7:00PM",
+                                        value: 38,
+                                        predicted: 35,
+                                      },
+                                    ]
                               }
                             >
                               {/* @ts-expect-error Recharts CartesianGrid type compatibility */}
@@ -254,9 +424,8 @@ const HomePage = () => {
                                 stroke="#6B5D4F"
                                 style={{ fontSize: "11px" }}
                                 domain={[0, 100]}
-                                tickFormatter={(value) => `${value}%`}
+                                tickFormatter={(value) => `${value}`}
                               />
-                              {/* @ts-expect-error Recharts Tooltip type compatibility */}
                               <Tooltip
                                 contentStyle={{
                                   backgroundColor: "#FAF7F2",
@@ -277,6 +446,18 @@ const HomePage = () => {
                                 strokeWidth={3}
                                 dot={{ fill: "#7A5848", r: 4 }}
                                 activeDot={{ r: 6 }}
+                                name="Actual"
+                              />
+                              {/* @ts-expect-error Recharts Line type compatibility */}
+                              <Line
+                                type="monotone"
+                                dataKey="predicted"
+                                stroke="#D3D3D3"
+                                strokeWidth={2}
+                                strokeDasharray="5 5"
+                                dot={false}
+                                connectNulls={false}
+                                name="Predicted Traffic"
                               />
                             </LineChart>
                           </ResponsiveContainer>

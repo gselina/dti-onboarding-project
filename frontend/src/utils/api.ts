@@ -9,6 +9,7 @@ export type CrowdStats = {
   currentCrowdLevel: "Low" | "Medium" | "High";
   estimatedWaitTime: string;
   historicalData: CrowdDataPoint[];
+  previousDayData?: CrowdDataPoint[];
 };
 
 export type PackageStats = {
