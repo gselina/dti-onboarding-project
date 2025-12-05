@@ -1,4 +1,5 @@
 import HomePage from "../pages/Home";
+import TimeSlots from "../pages/TimeSlots"; 
 import SignInPage from "../pages/SignIn";
 import ReservationsPage from "../pages/Reservations";
 
@@ -31,5 +32,10 @@ export const PATHS: {
     link: "/signin",
     label: "Sign In",
     element: <SignInPage />,
+  },
+  {
+    link: "/time-slots",
+    label: "Book Time Slot",
+    element: <TimeSlots />,
   },
 ];

@@ -5,6 +5,7 @@ import fetch from "node-fetch";
 import { db } from "./firebaseUtils";
 import * as admin from "firebase-admin";
 import { isWithinRPCCHours } from "./rpccHours";
+import { TimeSlot, Reservation } from "@full-stack/types";
 
 const app: Express = express();
 
@@ -328,4 +329,164 @@ app.get("/api/package-stats", async (req, res) => {
 
 app.listen(port, hostname, () => {
     console.log("Listening");
+});
+
+// GET /api/timeSlots - Get all time slots with reservation counts
+app.get("/api/timeSlots", async (req, res) => {
+    console.log("GET /api/timeSlots was called");
+    try {
+        // Get all time slots
+        const slotsSnapshot = await db.collection("timeSlots").get();
+        
+        // Get all active reservations
+        const reservationsSnapshot = await db
+            .collection("reservations")
+            .where("status", "==", "active")
+            .get();
+        
+        // Count reservations per slot
+        const reservationCounts: { [slotId: string]: number } = {};
+        reservationsSnapshot.forEach((doc) => {
+            const reservation = doc.data();
+            const slotId = reservation.slotId;
+            reservationCounts[slotId] = (reservationCounts[slotId] || 0) + 1;
+        });
+        
+        // Combine time slots with reservation counts
+        const timeSlots: TimeSlot[] = [];
+        slotsSnapshot.forEach((doc) => {
+            const slotData = doc.data();
+            const reservationCount = reservationCounts[doc.id] || 0;
+            const capacity = slotData.capacity || 0;
+            
+                        // Determine status based on capacity
+                        let status: "available" | "busy" | "full";
+                        if (reservationCount >= capacity) {
+                            status = "full";
+                        } else if (reservationCount >= capacity * 0.8) {
+                            status = "busy";
+                        } else {
+                            status = "available";
+                        }
+                        
+                        timeSlots.push({
+                            id: doc.id,
+                            startTime: slotData.startTime?.toDate ? slotData.startTime.toDate().toISOString() : slotData.startTime,
+                            endTime: slotData.endTime?.toDate ? slotData.endTime.toDate().toISOString() : slotData.endTime,
+                            capacity: capacity,
+                            currentBookings: reservationCount,
+                            status: status,
+                        });
+                    });
+                    
+                    // Sort by start time
+                    timeSlots.sort((a, b) => {
+                        const aTime = a.startTime.toDate ? a.startTime.toDate() : new Date(a.startTime);
+                        const bTime = b.startTime.toDate ? b.startTime.toDate() : new Date(b.startTime);
+                        return aTime.getTime() - bTime.getTime();
+                    });
+                    
+                    res.json(timeSlots);
+                } catch (error) {
+                    console.error("Error fetching time slots:", error);
+                    res.status(500).json({ error: "Failed to fetch time slots" });
+                }
+            });
+// POST /api/reservations - Create a reservation
+app.post("/api/reservations", async (req, res) => {
+    console.log("POST /api/reservations was called");
+    try {
+        const { userId, userName, slotId } = req.body;
+        
+        // Validate input
+        if (!userId || !userName || !slotId) {
+            return res.status(400).json({ error: "Missing required fields: userId, userName, slotId" });
+        }
+        
+        // Check if time slot exists
+        const slotDoc = await db.collection("timeSlots").doc(slotId).get();
+        if (!slotDoc.exists) {
+            return res.status(404).json({ error: "Time slot not found" });
+        }
+        
+        const slotData = slotDoc.data();
+        const capacity = slotData?.capacity || 0;
+    
+        
+         // Count current active reservations for this slot
+         const existingReservations = await db
+         .collection("reservations")
+         .where("slotId", "==", slotId)
+         .where("status", "==", "active")
+         .get();
+        
+         const currentBookings = existingReservations.size;
+            // Check if slot is full
+            if (currentBookings >= capacity) {
+                return res.status(400).json({ error: "Time slot is full" });
+            }
+            
+            // Check if user already has an active reservation for this slot
+            const userReservations = await db
+                .collection("reservations")
+                .where("userId", "==", userId)
+                .where("slotId", "==", slotId)
+                .where("status", "==", "active")
+                .get();
+            
+            if (!userReservations.empty) {
+                return res.status(400).json({ error: "You already have a reservation for this time slot" });
+            }
+            
+            // Get the slot's start time for pickupTime
+            const startTime = slotData?.startTime;
+            
+            // Create reservation
+            const reservationRef = await db.collection("reservations").add({
+                userId,
+                userName,
+                slotId,
+                status: "active",
+                createdAt: admin.firestore.Timestamp.now(),
+            });
+            
+            res.json({          
+                id: reservationRef.id,
+            userId,
+            userName,
+            slotId,
+            status: "active",
+            success: true,
+        });
+    } catch (error) {
+        console.error("Error creating reservation:", error);
+        res.status(500).json({ error: "Failed to create reservation" });
+    }
+});
+
+// GET /api/reservations/:userId - Get user's reservations
+app.get("/api/reservations/:userId", async (req, res) => {
+    console.log(`GET /api/reservations/${req.params.userId} was called`);
+    try {
+        const { userId } = req.params;
+        
+        const reservationsSnapshot = await db
+            .collection("reservations")
+            .where("userId", "==", userId)
+            .orderBy("createdAt", "desc")
+            .get();
+        
+        const reservations: Reservation[] = [];
+        reservationsSnapshot.forEach((doc) => {
+            reservations.push({
+                id: doc.id,
+                ...doc.data(),
+            } as Reservation);
+        });
+        
+        res.json(reservations);
+    } catch (error) {
+        console.error("Error fetching reservations:", error);
+        res.status(500).json({ error: "Failed to fetch reservations" });
+    }
 });

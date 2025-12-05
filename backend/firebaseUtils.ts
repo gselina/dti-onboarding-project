@@ -1,6 +1,8 @@
 import * as admin from "firebase-admin";
 import * as dotenv from "dotenv";
 import * as path from "path";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 dotenv.config();
 
@@ -15,9 +17,18 @@ if (!admin.apps.length) {
     );
   }
 
-  // Try service account key from env variable
+  // Try service account key from file first
   let serviceAccount;
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+  try {
+    const keyPath = join(__dirname, "serviceAccountKey.json");
+    serviceAccount = JSON.parse(readFileSync(keyPath, "utf8"));
+    console.log("Loaded service account from serviceAccountKey.json");
+  } catch (e) {
+    console.warn("Could not load serviceAccountKey.json:", (e as Error).message);
+  }
+
+  // Try service account key from env variable
+  if (!serviceAccount && process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
     try {
       const keyString = process.env.FIREBASE_SERVICE_ACCOUNT_KEY.trim().replace(/^["']|["']$/g, '');
       serviceAccount = JSON.parse(keyString);
@@ -25,7 +36,6 @@ if (!admin.apps.length) {
       console.warn("Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY from env, trying file path...");
     }
   }
-
   // Try service account key from file path
   if (!serviceAccount && process.env.GOOGLE_APPLICATION_CREDENTIALS) {
     try {

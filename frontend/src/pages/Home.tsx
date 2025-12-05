@@ -279,6 +279,8 @@ const HomePage = () => {
             to="/reservations"
             size="lg"
             variant="filled"
+            component={Link}
+            to="/time-slots"
             sx={{
               backgroundColor: "#000000",
               color: "#FFFFFF",
