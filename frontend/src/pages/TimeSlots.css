@@ -1,0 +1,11 @@
+.time-slots-page {
+    width: 100%;
+    min-width: 100%;
+  }
+  
+  .time-slots-page .mantine-Container-root {
+    max-width: 100% !important;
+    width: 100%;
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }

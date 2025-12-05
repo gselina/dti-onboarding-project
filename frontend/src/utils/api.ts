@@ -1,4 +1,5 @@
 import { BACKEND_BASE_PATH } from "../constants/Navigation";
+import type { TimeSlot, Reservation } from "@full-stack/types";
 
 export type CrowdDataPoint = {
   time: string;
@@ -47,3 +48,72 @@ export async function fetchPackageStats(): Promise<PackageStats> {
   return data;
 }
 
+
+// Fetch all time slots with reservation counts
+export async function fetchTimeSlots(): Promise<TimeSlot[]> {
+  const url = `${BACKEND_BASE_PATH}/timeSlots`;
+  console.log("Fetching time slots from:", url);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch time slots: ${response.status}`);
+    }
+    const data = await response.json();
+    console.log("Time slots data received:", data);
+    return data;
+  } catch (error) {
+    console.error("Error fetching time slots:", error);
+    return [];
+  }
+}
+
+export async function createReservation(
+  userId: string,
+  userName: string,
+  slotId: string
+): Promise<Reservation> {
+  const url = `${BACKEND_BASE_PATH}/reservations`;
+  console.log("Creating reservation:", { userId, userName, slotId });
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        userId,
+        userName,
+        slotId,
+      }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || `Failed to create reservation: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log("Reservation created:", data);
+    return data;
+  } catch (error) {
+    console.error("Error creating reservation:", error);
+    throw error;
+  }
+}
+
+export async function fetchUserReservations(userId: string): Promise<Reservation[]> {
+  const url = `${BACKEND_BASE_PATH}/reservations/${userId}`;
+  console.log("Fetching reservations for user:", userId);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch reservations: ${response.status}`);
+    }
+    const data = await response.json();
+    console.log("User reservations received:", data);
+    return data;
+  } catch (error) {
+    console.error("Error fetching reservations:", error);
+    return [];
+  }
+}

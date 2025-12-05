@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Container,
   Grid,
@@ -276,6 +277,8 @@ const HomePage = () => {
           <Button
             size="lg"
             variant="filled"
+            component={Link}
+            to="/time-slots"
             sx={{
               backgroundColor: "#000000",
               color: "#FFFFFF",

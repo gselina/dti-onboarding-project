@@ -1,4 +1,5 @@
 import HomePage from "../pages/Home";
+import TimeSlots from "../pages/TimeSlots"; 
 
 /**
  * Backend base path for API calls.
@@ -29,5 +30,10 @@ export const PATHS: {
     link: "/signin",
     label: "Sign In",
     element: <HomePage />,
+  },
+  {
+    link: "/time-slots",
+    label: "Book Time Slot",
+    element: <TimeSlots />,
   },
 ];
