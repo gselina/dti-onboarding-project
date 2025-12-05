@@ -1,5 +1,7 @@
 import HomePage from "../pages/Home";
 import TimeSlots from "../pages/TimeSlots"; 
+import SignInPage from "../pages/SignIn";
+import ReservationsPage from "../pages/Reservations";
 
 /**
  * Backend base path for API calls.
@@ -22,14 +24,14 @@ export const PATHS: {
     element: <HomePage />,
   },
   {
-    link: "/packages",
-    label: "My Packages",
-    element: <HomePage />,
+    link: "/reservations",
+    label: "My Reservations",
+    element: <ReservationsPage />,
   },
   {
     link: "/signin",
     label: "Sign In",
-    element: <HomePage />,
+    element: <SignInPage />,
   },
   {
     link: "/time-slots",

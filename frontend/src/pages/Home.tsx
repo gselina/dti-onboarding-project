@@ -275,6 +275,8 @@ const HomePage = () => {
             ahead.
           </Text>
           <Button
+            component={Link}
+            to="/reservations"
             size="lg"
             variant="filled"
             component={Link}
