@@ -7,9 +7,11 @@ import {
   rem,
   Button,
 } from "@mantine/core";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Package } from "lucide-react";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { auth } from "../config/firebase";
 
 const useStyles = createStyles((theme) => ({
   header: {
@@ -74,10 +76,25 @@ interface HeaderSimpleProps {
 
 export function HeaderSimple({ links }: HeaderSimpleProps) {
   const [opened, setOpened] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
   const location = useLocation();
   const { classes, cx } = useStyles();
 
-  const navLinks = links.filter((link) => link.label !== "Sign In");
+  useEffect(() => {
+    // Listen for auth state changes
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Filter nav links: remove "Sign In" and "My Reservations" (button handles it)
+  const navLinks = links.filter((link) => {
+    if (link.label === "Sign In") return false;
+    if (link.label === "My Reservations") return false; // Always remove from nav, button handles it
+    return true;
+  });
 
   const items = navLinks.map((link) => (
     <Link
@@ -111,17 +128,31 @@ export function HeaderSimple({ links }: HeaderSimpleProps) {
           <Group spacing={0} className={classes.links}>
             {items}
           </Group>
-          <Button
-            component={Link}
-            to="/signin"
-            variant="filled"
-            style={{
-              backgroundColor: "#000000",
-              color: "#FFFFFF",
-            }}
-          >
-            Sign In
-          </Button>
+          {user ? (
+            <Button
+              component={Link}
+              to="/reservations"
+              variant="filled"
+              style={{
+                backgroundColor: "#000000",
+                color: "#FFFFFF",
+              }}
+            >
+              My Reservations
+            </Button>
+          ) : (
+            <Button
+              component={Link}
+              to="/signin"
+              variant="filled"
+              style={{
+                backgroundColor: "#000000",
+                color: "#FFFFFF",
+              }}
+            >
+              Sign In
+            </Button>
+          )}
           <Burger
             opened={opened}
             onClick={() => setOpened((o) => !o)}
