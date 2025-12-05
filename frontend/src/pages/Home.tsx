@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   Container,
   Grid,
@@ -274,6 +275,8 @@ const HomePage = () => {
             ahead.
           </Text>
           <Button
+            component={Link}
+            to="/reservations"
             size="lg"
             variant="filled"
             sx={{
