@@ -12,6 +12,7 @@ import { Link, useLocation } from "react-router-dom";
 import { Package } from "lucide-react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth } from "../config/firebase";
+import { isAdmin } from "../auth";
 
 const useStyles = createStyles((theme) => ({
   header: {
@@ -77,14 +78,27 @@ interface HeaderSimpleProps {
 export function HeaderSimple({ links }: HeaderSimpleProps) {
   const [opened, setOpened] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [isUserAdmin, setIsUserAdmin] = useState(false);
   const location = useLocation();
   const { classes, cx } = useStyles();
 
   useEffect(() => {
     // Listen for auth state changes
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async(currentUser) => {
       setUser(currentUser);
-    });
+
+    if (currentUser) {
+      try {
+        const adminStatus = await isAdmin(currentUser);
+        setIsUserAdmin(adminStatus);
+      } catch (error) {
+        console.error("Error checking admin status:", error);
+        setIsUserAdmin(false);
+      }
+    } else {
+      setIsUserAdmin(false);
+    }
+  });
 
     return () => unsubscribe();
   }, []);
@@ -93,6 +107,7 @@ export function HeaderSimple({ links }: HeaderSimpleProps) {
   const navLinks = links.filter((link) => {
     if (link.label === "Sign In") return false;
     if (link.label === "My Reservations") return false; // Always remove from nav, button handles it
+    if (link.label === "Admin") return false;
     return true;
   });
 
@@ -128,6 +143,20 @@ export function HeaderSimple({ links }: HeaderSimpleProps) {
           <Group spacing={0} className={classes.links}>
             {items}
           </Group>
+          {user && isUserAdmin && (
+            <Button
+              component={Link}
+              to="/admin"
+              variant="outline"
+              style={{
+                borderColor: "#7A5848",
+                color: "#7A5848",
+                marginRight: "8px",
+              }}
+            >
+              Admin
+            </Button>
+          )}
           {user ? (
             <Button
               component={Link}
