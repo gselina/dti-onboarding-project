@@ -4,7 +4,7 @@ import cors from "cors";
 import fetch from "node-fetch";
 import { db } from "./firebaseUtils";
 import * as admin from "firebase-admin";
-import { isWithinRPCCHours } from "./rpccHours";
+import { isWithinRPCCHours, getRPCCOperationHours } from "./rpccHours";
 import { TimeSlot, Reservation } from "@full-stack/types";
 
 const app: Express = express();
@@ -523,6 +523,111 @@ app.get("/api/timeSlots/:slotId", async (req, res) => {
     } catch (error) {
         console.error("Error fetching time slot:", error);
         res.status(500).json({ error: "Failed to fetch time slot" });
+    }
+});
+
+// POST /api/timeSlots - Create a new time slot (admin only)
+app.post("/api/timeSlots", async (req, res) => {
+    console.log("POST /api/timeSlots was called");
+    try {
+        const { startTime, endTime, capacity } = req.body;
+        
+        // Validate input
+        if (!startTime || !endTime) {
+            return res.status(400).json({ error: "Missing required fields: startTime, endTime" });
+        }
+        
+        const startDate = new Date(startTime);
+        const endDate = new Date(endTime);
+        
+        if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            return res.status(400).json({ error: "Invalid date format" });
+        }
+        
+        if (startDate >= endDate) {
+            return res.status(400).json({ error: "End time must be after start time" });
+        }
+        
+        // Check if time slot is within RPCC operation hours
+        if (!isWithinRPCCHours(startDate)) {
+            return res.status(400).json({ 
+                error: "Time slot start time is outside RPCC operation hours. Please check the operating hours for this day." 
+            });
+        }
+        
+        // Also check if end time is within operation hours (or at least the slot doesn't extend too far)
+        // The end time should be within the same day's operation hours
+        if (!isWithinRPCCHours(endDate) && endDate.getDate() === startDate.getDate()) {
+            // If end time is on the same day but outside hours, check if it's just past closing
+            const endHour = endDate.getHours();
+            const dayOfWeek = endDate.getDay();
+            const { end: closingHour } = getRPCCOperationHours(dayOfWeek);
+            
+            // Allow if end time is exactly at closing (7pm = 19:00)
+            if (endHour > closingHour) {
+                return res.status(400).json({ 
+                    error: "Time slot end time extends beyond RPCC operation hours. Please ensure the slot ends before closing time." 
+                });
+            }
+        }
+        
+        const slotCapacity = capacity || 40; // Default to 40 if not provided
+        
+        // Create time slot
+        const slotRef = await db.collection("timeSlots").add({
+            startTime: admin.firestore.Timestamp.fromDate(startDate),
+            endTime: admin.firestore.Timestamp.fromDate(endDate),
+            capacity: slotCapacity,
+            currentBookings: 0,
+            status: "available",
+        });
+        
+        res.json({
+            id: slotRef.id,
+            startTime: startDate.toISOString(),
+            endTime: endDate.toISOString(),
+            capacity: slotCapacity,
+            currentBookings: 0,
+            status: "available",
+        });
+    } catch (error) {
+        console.error("Error creating time slot:", error);
+        res.status(500).json({ error: "Failed to create time slot" });
+    }
+});
+
+// DELETE /api/timeSlots/:slotId - Delete a time slot (admin only)
+app.delete("/api/timeSlots/:slotId", async (req, res) => {
+    console.log(`DELETE /api/timeSlots/${req.params.slotId} was called`);
+    try {
+        const { slotId } = req.params;
+        
+        // Check if time slot exists
+        const slotDoc = await db.collection("timeSlots").doc(slotId).get();
+        if (!slotDoc.exists) {
+            return res.status(404).json({ error: "Time slot not found" });
+        }
+        
+        // Check if there are any active reservations for this slot
+        const activeReservations = await db
+            .collection("reservations")
+            .where("slotId", "==", slotId)
+            .where("status", "==", "active")
+            .get();
+        
+        if (!activeReservations.empty) {
+            return res.status(400).json({ 
+                error: `Cannot delete time slot with ${activeReservations.size} active reservation(s). Please cancel all reservations first.` 
+            });
+        }
+        
+        // Delete the time slot
+        await db.collection("timeSlots").doc(slotId).delete();
+        
+        res.json({ success: true, message: "Time slot deleted successfully" });
+    } catch (error) {
+        console.error("Error deleting time slot:", error);
+        res.status(500).json({ error: "Failed to delete time slot" });
     }
 });
 
