@@ -380,21 +380,10 @@ app.get("/api/timeSlots", async (req, res) => {
             }
         }
         
-        // Combine time slots with reservation counts, filtering to only RPCC operation hours
+        // Combine time slots with reservation counts (show all slots, including outside operation hours)
         const timeSlots: TimeSlot[] = [];
         slotsSnapshot.forEach((doc) => {
             const slotData = doc.data();
-            
-            // Get the start time as a Date object
-            const startTime = slotData.startTime?.toDate 
-                ? slotData.startTime.toDate() 
-                : new Date(slotData.startTime);
-            
-            // Only include slots within RPCC operation hours
-            if (!isWithinRPCCHours(startTime)) {
-                return; // Skip this slot
-            }
-            
             const reservationCount = reservationCounts[doc.id] || 0;
             const capacity = slotData.capacity || 0;
             
@@ -419,13 +408,100 @@ app.get("/api/timeSlots", async (req, res) => {
         });
         
         // Already sorted by startTime from query
-        console.log(`Returning ${timeSlots.length} time slots within RPCC operation hours`);
+        console.log(`Returning ${timeSlots.length} time slots (all slots, including outside operation hours)`);
         res.json(timeSlots);
     } catch (error) {
         console.error("Error fetching time slots:", error);
         res.status(500).json({ error: "Failed to fetch time slots" });
     }
+});
+
+// GET /api/admin/timeSlots - Get all time slots (admin only, no operation hours filter)
+app.get("/api/admin/timeSlots", async (req, res) => {
+    console.log("GET /api/admin/timeSlots was called");
+    try {
+        const now = new Date();
+        const threeDaysFromNow = new Date(now);
+        threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+        threeDaysFromNow.setHours(23, 59, 59, 999);
+        
+        const nowTimestamp = admin.firestore.Timestamp.fromDate(now);
+        const threeDaysTimestamp = admin.firestore.Timestamp.fromDate(threeDaysFromNow);
+        
+        // Get time slots for the next 3 days (no operation hours filter for admin)
+        const slotsSnapshot = await db
+            .collection("timeSlots")
+            .where("startTime", ">=", nowTimestamp)
+            .where("startTime", "<=", threeDaysTimestamp)
+            .orderBy("startTime", "asc")
+            .get();
+        
+        console.log(`Found ${slotsSnapshot.size} time slots in next 3 days (admin view)`);
+        
+        if (slotsSnapshot.size === 0) {
+            return res.json([]);
+        }
+        
+        // Get slot IDs to query reservations for only these slots
+        const slotIds = slotsSnapshot.docs.map(doc => doc.id);
+        
+        // Get reservations only for these specific slots
+        const reservationCounts: { [slotId: string]: number } = {};
+        
+        if (slotIds.length > 0) {
+            // Process in batches of 10 (Firestore 'in' query limit)
+            for (let i = 0; i < slotIds.length; i += 10) {
+                const batch = slotIds.slice(i, i + 10);
+                const reservationsSnapshot = await db
+                    .collection("reservations")
+                    .where("slotId", "in", batch)
+                    .where("status", "==", "active")
+                    .get();
+                
+                reservationsSnapshot.forEach((doc) => {
+                    const reservation = doc.data();
+                    const slotId = reservation.slotId;
+                    reservationCounts[slotId] = (reservationCounts[slotId] || 0) + 1;
+                });
+            }
+        }
+        
+        // Combine time slots with reservation counts (NO operation hours filter for admin)
+        const timeSlots: TimeSlot[] = [];
+        slotsSnapshot.forEach((doc) => {
+            const slotData = doc.data();
+            const reservationCount = reservationCounts[doc.id] || 0;
+            const capacity = slotData.capacity || 0;
+            
+            // Determine status based on capacity
+            let status: "available" | "busy" | "full";
+            if (reservationCount >= capacity) {
+                status = "full";
+            } else if (reservationCount >= capacity * 0.8) {
+                status = "busy";
+            } else {
+                status = "available";
+            }
+            
+            timeSlots.push({
+                id: doc.id,
+                startTime: slotData.startTime?.toDate ? slotData.startTime.toDate().toISOString() : slotData.startTime,
+                endTime: slotData.endTime?.toDate ? slotData.endTime.toDate().toISOString() : slotData.endTime,
+                capacity: capacity,
+                currentBookings: reservationCount,
+                status: status,
             });
+        });
+        
+        // Already sorted by startTime from query
+        console.log(`Returning ${timeSlots.length} time slots (admin view - all slots)`);
+        res.json(timeSlots);
+    } catch (error) {
+        console.error("Error fetching admin time slots:", error);
+        res.status(500).json({ error: "Failed to fetch time slots" });
+    }
+});
+
 // POST /api/reservations - Create a reservation
 app.post("/api/reservations", async (req, res) => {
     console.log("POST /api/reservations was called");
@@ -526,6 +602,47 @@ app.get("/api/timeSlots/:slotId", async (req, res) => {
     }
 });
 
+// Helper function to get operation hours from Firestore (with fallback to defaults)
+async function getOperationHoursForDay(dayOfWeek: number): Promise<{ start: number; end: number }> {
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const dayName = dayNames[dayOfWeek];
+    
+    try {
+        const hoursDoc = await db.collection("operationHours").doc(dayName).get();
+        if (hoursDoc.exists) {
+            const data = hoursDoc.data();
+            return {
+                start: data?.start || getRPCCOperationHours(dayOfWeek).start,
+                end: data?.end || getRPCCOperationHours(dayOfWeek).end,
+            };
+        }
+    } catch (error) {
+        console.error("Error fetching operation hours:", error);
+    }
+    
+    // Fallback to default hours
+    return getRPCCOperationHours(dayOfWeek);
+}
+
+// Helper function to update operation hours for a day
+async function updateOperationHoursForDay(dayOfWeek: number, startHour: number, endHour: number): Promise<void> {
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const dayName = dayNames[dayOfWeek];
+    
+    try {
+        await db.collection("operationHours").doc(dayName).set({
+            start: startHour,
+            end: endHour,
+            dayOfWeek: dayOfWeek,
+            updatedAt: admin.firestore.Timestamp.now(),
+        }, { merge: true });
+        console.log(`Updated operation hours for ${dayName}: ${startHour}:00 - ${endHour}:00`);
+    } catch (error) {
+        console.error("Error updating operation hours:", error);
+        throw error;
+    }
+}
+
 // POST /api/timeSlots - Create a new time slot (admin only)
 app.post("/api/timeSlots", async (req, res) => {
     console.log("POST /api/timeSlots was called");
@@ -548,30 +665,43 @@ app.post("/api/timeSlots", async (req, res) => {
             return res.status(400).json({ error: "End time must be after start time" });
         }
         
-        // Check if time slot is within RPCC operation hours
-        if (!isWithinRPCCHours(startDate)) {
-            return res.status(400).json({ 
-                error: "Time slot start time is outside RPCC operation hours. Please check the operating hours for this day." 
-            });
-        }
-        
-        // Also check if end time is within operation hours (or at least the slot doesn't extend too far)
-        // The end time should be within the same day's operation hours
-        if (!isWithinRPCCHours(endDate) && endDate.getDate() === startDate.getDate()) {
-            // If end time is on the same day but outside hours, check if it's just past closing
-            const endHour = endDate.getHours();
-            const dayOfWeek = endDate.getDay();
-            const { end: closingHour } = getRPCCOperationHours(dayOfWeek);
-            
-            // Allow if end time is exactly at closing (7pm = 19:00)
-            if (endHour > closingHour) {
-                return res.status(400).json({ 
-                    error: "Time slot end time extends beyond RPCC operation hours. Please ensure the slot ends before closing time." 
-                });
-            }
-        }
-        
         const slotCapacity = capacity || 40; // Default to 40 if not provided
+        
+        // Check if time slot extends beyond current operation hours and update if needed
+        const dayOfWeek = startDate.getDay();
+        const currentHours = await getOperationHoursForDay(dayOfWeek);
+        const slotStartHour = startDate.getHours();
+        const slotStartMinutes = startDate.getMinutes();
+        const slotEndHour = endDate.getHours();
+        const slotEndMinutes = endDate.getMinutes();
+        
+        let needsUpdate = false;
+        let newStartHour = currentHours.start;
+        let newEndHour = currentHours.end;
+        
+        // Calculate start hour (if there are minutes, use the hour as-is, opening at that exact time)
+        const effectiveStartHour = slotStartHour;
+        
+        // Calculate end hour (if there are minutes, round up to next hour for closing time)
+        const effectiveEndHour = slotEndMinutes > 0 ? slotEndHour + 1 : slotEndHour;
+        
+        // If slot starts before current opening, extend opening time
+        if (effectiveStartHour < currentHours.start) {
+            newStartHour = effectiveStartHour;
+            needsUpdate = true;
+        }
+        
+        // If slot ends after current closing, extend closing time
+        if (effectiveEndHour > currentHours.end) {
+            newEndHour = effectiveEndHour;
+            needsUpdate = true;
+        }
+        
+        // Update operation hours if needed
+        if (needsUpdate) {
+            await updateOperationHoursForDay(dayOfWeek, newStartHour, newEndHour);
+            console.log(`Operation hours updated for day ${dayOfWeek}: ${newStartHour}:00 - ${newEndHour}:00`);
+        }
         
         // Create time slot
         const slotRef = await db.collection("timeSlots").add({

@@ -21,7 +21,11 @@ import { Trash2, Plus } from "lucide-react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth } from "../config/firebase";
 import { isAdmin } from "../auth";
-import { fetchTimeSlots, createTimeSlot, deleteTimeSlot } from "../utils/api";
+import {
+  fetchAdminTimeSlots,
+  createTimeSlot,
+  deleteTimeSlot,
+} from "../utils/api";
 import type { TimeSlot } from "@full-stack/types";
 
 const AdminPage = () => {
@@ -76,7 +80,7 @@ const AdminPage = () => {
   const loadAdminData = async () => {
     try {
       setError(null);
-      const slots = await fetchTimeSlots();
+      const slots = await fetchAdminTimeSlots();
       setTimeSlots(slots);
     } catch (error) {
       console.error("Error loading admin data:", error);

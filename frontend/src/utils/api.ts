@@ -67,6 +67,24 @@ export async function fetchTimeSlots(): Promise<TimeSlot[]> {
   }
 }
 
+// Fetch all time slots for admin (no operation hours filter)
+export async function fetchAdminTimeSlots(): Promise<TimeSlot[]> {
+  const url = `${BACKEND_BASE_PATH}/admin/timeSlots`;
+  console.log("Fetching admin time slots from:", url);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch admin time slots: ${response.status}`);
+    }
+    const data = await response.json();
+    console.log("Admin time slots data received:", data);
+    return data;
+  } catch (error) {
+    console.error("Error fetching admin time slots:", error);
+    throw error;
+  }
+}
+
 export async function createReservation(
   userId: string,
   userName: string,
