@@ -104,16 +104,51 @@ export async function createReservation(
 export async function fetchUserReservations(userId: string): Promise<Reservation[]> {
   const url = `${BACKEND_BASE_PATH}/reservations/${userId}`;
   console.log("Fetching reservations for user:", userId);
+  console.log("API URL:", url);
   try {
     const response = await fetch(url);
+    console.log("Response status:", response.status);
     if (!response.ok) {
-      throw new Error(`Failed to fetch reservations: ${response.status}`);
+      const errorText = await response.text();
+      console.error("Error response:", errorText);
+      throw new Error(`Failed to fetch reservations: ${response.status} - ${errorText}`);
     }
     const data = await response.json();
     console.log("User reservations received:", data);
-    return data;
+    console.log("Number of reservations:", Array.isArray(data) ? data.length : "Not an array");
+    return Array.isArray(data) ? data : [];
   } catch (error) {
     console.error("Error fetching reservations:", error);
-    return [];
+    if (error instanceof Error) {
+      console.error("Error message:", error.message);
+    }
+    throw error; // Re-throw so the UI can show the error
+  }
+}
+
+export async function cancelReservation(
+  reservationId: string,
+  userId: string
+): Promise<void> {
+  const url = `${BACKEND_BASE_PATH}/reservations/${reservationId}`;
+  console.log("Cancelling reservation:", { reservationId, userId });
+  try {
+    const response = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ userId }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || `Failed to cancel reservation: ${response.status}`);
+    }
+    
+    console.log("Reservation cancelled successfully");
+  } catch (error) {
+    console.error("Error cancelling reservation:", error);
+    throw error;
   }
 }

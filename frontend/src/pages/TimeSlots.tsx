@@ -1,6 +1,7 @@
 // frontend/src/pages/TimeSlots.tsx
 
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Container,
   Card,
@@ -13,37 +14,72 @@ import {
   Center,
   Alert,
   Modal,
-  TextInput,
   Tabs,
   ScrollArea,
 } from "@mantine/core";
-import { Clock, Users, CheckCircle, Calendar } from "lucide-react";
-import { fetchTimeSlots, createReservation } from "../utils/api";
-import type { TimeSlot } from "@full-stack/types";
+import { Clock, Users, CheckCircle, X } from "lucide-react";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { auth } from "../config/firebase";
+import {
+  fetchTimeSlots,
+  createReservation,
+  fetchUserReservations,
+  cancelReservation,
+} from "../utils/api";
+import type { TimeSlot, Reservation } from "@full-stack/types";
 import "./TimeSlots.css"; // For your Figma CSS
 
 const TimeSlots = () => {
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
+  const [userReservations, setUserReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [bookingSlotId, setBookingSlotId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
-  const [userName, setUserName] = useState("");
   const [success, setSuccess] = useState(false);
   const [activeDay, setActiveDay] = useState(0); // 0 = today, 1 = tomorrow, 2 = day after
-
-  //When you add authentication, uncomment
-  //const { user } = useAuth();
-  //const userId = user?.uid || "";
-  const userId = "user123";
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    loadTimeSlots();
-    // Refresh every 30 seconds
-    const interval = setInterval(loadTimeSlots, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    // Listen for auth state changes
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+      if (!currentUser) {
+        navigate("/signin");
+      }
+    });
+    return () => unsubscribe();
+  }, [navigate]);
+
+  const userId = user?.uid || "";
+  const userName = user?.displayName || user?.email?.split("@")[0] || "User";
+
+  useEffect(() => {
+    if (user) {
+      loadTimeSlots();
+      loadUserReservations();
+      // Refresh every 30 seconds
+      const interval = setInterval(() => {
+        loadTimeSlots();
+        loadUserReservations();
+      }, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user]);
+
+  const loadUserReservations = async () => {
+    if (!user?.uid) return;
+    try {
+      const reservations = await fetchUserReservations(user.uid);
+      setUserReservations(reservations);
+    } catch (err) {
+      console.error("Error loading user reservations:", err);
+    }
+  };
 
   const loadTimeSlots = async () => {
     try {
@@ -62,10 +98,12 @@ const TimeSlots = () => {
             id: slot.id,
             startTime: slot.startTime,
             startTimeType: typeof slot.startTime,
-            hasToDate: typeof slot.startTime?.toDate === 'function',
-            convertedDate: slot.startTime?.toDate ? slot.startTime.toDate() : new Date(slot.startTime),
-            dateString: slot.startTime?.toDate 
-              ? slot.startTime.toDate().toLocaleDateString() 
+            hasToDate: typeof slot.startTime?.toDate === "function",
+            convertedDate: slot.startTime?.toDate
+              ? slot.startTime.toDate()
+              : new Date(slot.startTime),
+            dateString: slot.startTime?.toDate
+              ? slot.startTime.toDate().toLocaleDateString()
               : new Date(slot.startTime).toLocaleDateString(),
           });
         });
@@ -73,7 +111,9 @@ const TimeSlots = () => {
 
       setTimeSlots(slots);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load time slots");
+      setError(
+        err instanceof Error ? err.message : "Failed to load time slots"
+      );
     } finally {
       setLoading(false);
     }
@@ -83,15 +123,14 @@ const TimeSlots = () => {
   const slotsByDay = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
-      // Explicit debugging for date calculation
+
+    // Explicit debugging for date calculation
     console.log("\n=== DATE GROUPING DEBUG ===");
     console.log("Today (normalized):", today.toISOString());
     console.log("Today (readable):", today.toLocaleDateString());
-  
 
     const days: { date: Date; slots: TimeSlot[] }[] = [];
-    
+
     // Create 3 days: today, tomorrow, day after
     for (let i = 0; i < 3; i++) {
       const date = new Date(today);
@@ -100,16 +139,19 @@ const TimeSlots = () => {
     }
 
     // Group slots by day
-     // Group slots by day
+    // Group slots by day
     console.log("\n--- Matching slots to days ---");
     let matchedCount = 0;
     let unmatchedCount = 0;
     timeSlots.forEach((slot) => {
       let slotDate: Date;
-      if (typeof slot.startTime === 'string') {
+      if (typeof slot.startTime === "string") {
         // ISO string from backend
         slotDate = new Date(slot.startTime);
-      } else if (slot.startTime?.toDate && typeof slot.startTime.toDate === 'function') {
+      } else if (
+        slot.startTime?.toDate &&
+        typeof slot.startTime.toDate === "function"
+      ) {
         // Firestore Timestamp object (if not serialized)
         slotDate = slot.startTime.toDate();
       } else if (slot.startTime?.seconds) {
@@ -118,13 +160,13 @@ const TimeSlots = () => {
       } else {
         slotDate = new Date(slot.startTime);
       }
-      
+
       // Validate date
       if (isNaN(slotDate.getTime())) {
         console.warn(`Invalid date for slot ${slot.id}:`, slot.startTime);
         return;
       }
-      
+
       const slotDay = new Date(slotDate);
       slotDay.setHours(0, 0, 0, 0);
       let matched = false;
@@ -132,41 +174,44 @@ const TimeSlots = () => {
       // Find which day this slot belongs to
       for (let i = 0; i < days.length; i++) {
         const dayDate = new Date(days[i].date);
-        if (
-          slotDay.getTime() === dayDate.getTime()
-        ) {
+        if (slotDay.getTime() === dayDate.getTime()) {
           days[i].slots.push(slot);
           matched = true;
           matchedCount++;
           break;
         }
       }
-    if (!matched) {
-      unmatchedCount++;
-      console.log(`❌ Unmatched slot:`, {
-        slotId: slot.id,
-        slotDate: slotDate.toISOString(),
-        slotDateReadable: slotDate.toLocaleDateString(),
-        slotDayNormalized: slotDay.toISOString(),
-        lookingFor: days.map(d => d.date.toISOString()),
-      });
-    }
-  });
-  
-  console.log(`\nMatched: ${matchedCount}, Unmatched: ${unmatchedCount}`);
-  
-  // Show final grouping
-  console.log("\n--- Final grouped slots ---");
-  days.forEach((day, index) => {
-    console.log(`Day ${index} (${day.date.toLocaleDateString()}): ${day.slots.length} slots`);
-  });
+      if (!matched) {
+        unmatchedCount++;
+        console.log(`❌ Unmatched slot:`, {
+          slotId: slot.id,
+          slotDate: slotDate.toISOString(),
+          slotDateReadable: slotDate.toLocaleDateString(),
+          slotDayNormalized: slotDay.toISOString(),
+          lookingFor: days.map((d) => d.date.toISOString()),
+        });
+      }
+    });
 
+    console.log(`\nMatched: ${matchedCount}, Unmatched: ${unmatchedCount}`);
+
+    // Show final grouping
+    console.log("\n--- Final grouped slots ---");
+    days.forEach((day, index) => {
+      console.log(
+        `Day ${index} (${day.date.toLocaleDateString()}): ${day.slots.length} slots`
+      );
+    });
 
     // Sort slots within each day by start time
     days.forEach((day) => {
       day.slots.sort((a, b) => {
-        const aTime = a.startTime.toDate ? a.startTime.toDate() : new Date(a.startTime);
-        const bTime = b.startTime.toDate ? b.startTime.toDate() : new Date(b.startTime);
+        const aTime = a.startTime.toDate
+          ? a.startTime.toDate()
+          : new Date(a.startTime);
+        const bTime = b.startTime.toDate
+          ? b.startTime.toDate()
+          : new Date(b.startTime);
         return aTime.getTime() - bTime.getTime();
       });
     });
@@ -174,33 +219,80 @@ const TimeSlots = () => {
     return days;
   }, [timeSlots]);
 
+  const getUserReservationForSlot = (
+    slotId: string
+  ): Reservation | undefined => {
+    return userReservations.find(
+      (r) => r.slotId === slotId && r.status === "active"
+    );
+  };
+
   const handleBookClick = (slot: TimeSlot) => {
-    setSelectedSlot(slot);
-    setModalOpen(true);
-    setSuccess(false);
-    setError(null);
+    const reservation = getUserReservationForSlot(slot.id);
+    if (reservation) {
+      // User has a reservation, cancel it
+      handleCancelReservation(reservation.id, slot.id);
+    } else {
+      // User doesn't have a reservation, create one
+      setSelectedSlot(slot);
+      setModalOpen(true);
+      setSuccess(false);
+      setError(null);
+    }
+  };
+
+  const handleCancelReservation = async (
+    reservationId: string,
+    slotId: string
+  ) => {
+    if (!user?.uid) return;
+
+    if (!confirm("Are you sure you want to cancel this reservation?")) {
+      return;
+    }
+
+    try {
+      setBookingSlotId(slotId);
+      setError(null);
+      await cancelReservation(reservationId, user.uid);
+      setSuccess(true);
+      // Refresh time slots and reservations after cancellation
+      setTimeout(() => {
+        loadTimeSlots();
+        loadUserReservations();
+        setSuccess(false);
+      }, 1500);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to cancel reservation"
+      );
+    } finally {
+      setBookingSlotId(null);
+    }
   };
 
   const handleConfirmBooking = async () => {
-    if (!selectedSlot || !userName.trim()) {
-      setError("Please enter your name");
+    if (!selectedSlot || !userId) {
+      setError("Please sign in to make a reservation");
       return;
     }
 
     try {
       setBookingSlotId(selectedSlot.id);
       setError(null);
-      await createReservation(userId, userName.trim(), selectedSlot.id);
+      await createReservation(userId, userName, selectedSlot.id);
       setSuccess(true);
-      // Refresh time slots after booking
+      // Refresh time slots and reservations after booking
       setTimeout(() => {
         loadTimeSlots();
+        loadUserReservations();
         setModalOpen(false);
-        setUserName("");
         setSuccess(false);
       }, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create reservation");
+      setError(
+        err instanceof Error ? err.message : "Failed to create reservation"
+      );
     } finally {
       setBookingSlotId(null);
     }
@@ -246,15 +338,42 @@ const TimeSlots = () => {
 
   const currentDaySlots = slotsByDay[activeDay]?.slots || [];
 
+  if (authLoading) {
+    return (
+      <div
+        style={{
+          backgroundColor: "#FFFFFF",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Loader size="lg" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null; // Will redirect to sign in
+  }
+
   return (
     <div className="time-slots-page">
       <Container fluid py="xl">
         <Stack spacing="xl">
           {/* Day Tabs */}
-          <Tabs value={activeDay.toString()} onTabChange={(value) => setActiveDay(Number(value))}>
+          <Tabs
+            value={activeDay.toString()}
+            onTabChange={(value) => setActiveDay(Number(value))}
+          >
             <Tabs.List className="day-tabs">
               {slotsByDay.map((day, index) => (
-                <Tabs.Tab key={index} value={index.toString()} className="day-tab">
+                <Tabs.Tab
+                  key={index}
+                  value={index.toString()}
+                  className="day-tab"
+                >
                   <Stack spacing={4} align="center">
                     <Text size="sm" weight={500}>
                       {formatDate(day.date)}
@@ -289,7 +408,9 @@ const TimeSlots = () => {
                 </Center>
               ) : currentDaySlots.length === 0 ? (
                 <Center py="xl">
-                  <Text color="dimmed">No time slots available for this day</Text>
+                  <Text color="dimmed">
+                    No time slots available for this day
+                  </Text>
                 </Center>
               ) : (
                 currentDaySlots.map((slot) => (
@@ -307,15 +428,20 @@ const TimeSlots = () => {
                         <Group spacing="xs">
                           <Clock size={18} className="time-icon" />
                           <Text size="lg" weight={600} className="time-text">
-                            {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
+                            {formatTime(slot.startTime)} -{" "}
+                            {formatTime(slot.endTime)}
                           </Text>
                         </Group>
                         <Group spacing="xs">
                           <Users size={16} className="users-icon" />
                           <Text size="sm" className="capacity-text">
-                            <span className="current-bookings">{slot.currentBookings}</span>
+                            <span className="current-bookings">
+                              {slot.currentBookings}
+                            </span>
                             {" / "}
-                            <span className="total-capacity">{slot.capacity}</span>
+                            <span className="total-capacity">
+                              {slot.capacity}
+                            </span>
                             {" reserved"}
                           </Text>
                         </Group>
@@ -324,8 +450,8 @@ const TimeSlots = () => {
                             slot.status === "full"
                               ? "red"
                               : slot.status === "busy"
-                              ? "yellow"
-                              : "green"
+                                ? "yellow"
+                                : "green"
                           }
                           className="status-badge"
                         >
@@ -333,16 +459,32 @@ const TimeSlots = () => {
                         </Badge>
                       </Stack>
 
-                      {/* Right: Reserve Button */}
-                      <Button
-                        disabled={slot.status === "full" || bookingSlotId === slot.id}
-                        onClick={() => handleBookClick(slot)}
-                        loading={bookingSlotId === slot.id}
-                        className="reserve-button"
-                        size="md"
-                      >
-                        {slot.status === "full" ? "Full" : "Reserve"}
-                      </Button>
+                      {/* Right: Reserve/Cancel Button */}
+                      {(() => {
+                        const reservation = getUserReservationForSlot(slot.id);
+                        const isReserved = !!reservation;
+                        const isFull = slot.status === "full";
+                        const isLoading = bookingSlotId === slot.id;
+
+                        return (
+                          <Button
+                            disabled={isFull || isLoading}
+                            onClick={() => handleBookClick(slot)}
+                            loading={isLoading}
+                            className="reserve-button"
+                            size="md"
+                            color={isReserved ? "red" : undefined}
+                            variant={isReserved ? "outline" : "filled"}
+                            leftIcon={isReserved ? <X size={16} /> : undefined}
+                          >
+                            {isFull
+                              ? "Full"
+                              : isReserved
+                                ? "Cancel"
+                                : "Reserve"}
+                          </Button>
+                        );
+                      })()}
                     </Group>
                   </Card>
                 ))
@@ -357,7 +499,6 @@ const TimeSlots = () => {
         opened={modalOpen}
         onClose={() => {
           setModalOpen(false);
-          setUserName("");
           setError(null);
           setSuccess(false);
         }}
@@ -377,21 +518,18 @@ const TimeSlots = () => {
                   Time Slot:
                 </Text>
                 <Text weight={500} className="slot-time">
-                  {formatTime(selectedSlot.startTime)} - {formatTime(selectedSlot.endTime)}
+                  {formatTime(selectedSlot.startTime)} -{" "}
+                  {formatTime(selectedSlot.endTime)}
                 </Text>
                 <Text size="sm" color="dimmed" mt="xs">
-                  {selectedSlot.currentBookings} / {selectedSlot.capacity} reserved
+                  {selectedSlot.currentBookings} / {selectedSlot.capacity}{" "}
+                  reserved
                 </Text>
               </div>
             )}
-            <TextInput
-              label="Your Name"
-              placeholder="Enter your name"
-              value={userName}
-              onChange={(e) => setUserName(e.target.value)}
-              required
-              className="name-input"
-            />
+            <Text size="sm" color="dimmed">
+              Reserving as: <strong>{userName}</strong>
+            </Text>
             {error && (
               <Alert color="red" className="error-alert">
                 {error}
@@ -408,7 +546,7 @@ const TimeSlots = () => {
               <Button
                 onClick={handleConfirmBooking}
                 loading={bookingSlotId === selectedSlot?.id}
-                disabled={!userName.trim()}
+                disabled={!userId}
                 className="confirm-button"
               >
                 Confirm

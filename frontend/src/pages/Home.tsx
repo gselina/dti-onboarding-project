@@ -72,8 +72,8 @@ const HomePage = () => {
 
     loadData();
 
-    // Refresh data every 30 seconds
-    const interval = setInterval(loadData, 30000);
+    // Refresh data every 5 minutes (reduced from 30 seconds to save Firebase quota)
+    const interval = setInterval(loadData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -196,10 +196,19 @@ const HomePage = () => {
     });
   };
 
-  // Filter actual traffic data to only show up to current time
-  const filteredHistoricalData = crowdStats?.historicalData
-    ? filterDataUpToCurrentTime(crowdStats.historicalData)
-    : [];
+  const isCurrentlyOpen = isWithinRPCCHours();
+
+  // When closed, use previous day's data; otherwise use today's data
+  const dataToDisplay = isCurrentlyOpen
+    ? crowdStats?.historicalData || []
+    : crowdStats?.previousDayData || [];
+
+  // Filter actual traffic data to only show up to current time (only when open)
+  const filteredHistoricalData = isCurrentlyOpen
+    ? dataToDisplay.length > 0
+      ? filterDataUpToCurrentTime(dataToDisplay)
+      : []
+    : dataToDisplay; // When closed, show all previous day's data
 
   // Calculate crowd level from current hour's value in historical data
   const getCurrentCrowdLevel = (): "Low" | "Medium" | "High" => {
@@ -207,7 +216,7 @@ const HomePage = () => {
       return "Low";
     }
 
-    // Get the most recent data point (should be current hour)
+    // Get the most recent data point (should be current hour when open, or last hour of previous day when closed)
     const currentDataPoint =
       filteredHistoricalData[filteredHistoricalData.length - 1];
     const currentValue = currentDataPoint?.value || 0;
@@ -242,12 +251,17 @@ const HomePage = () => {
 
   // Generate predicted data from filtered data (so predicted line also stops at current time)
   // But predicted values are generated deterministically, so they'll be consistent
+  // When closed, don't show predicted line (only show previous day's actual data)
   const chartData =
     filteredHistoricalData.length > 0
-      ? generateMockPredictedData(filteredHistoricalData)
+      ? isCurrentlyOpen
+        ? generateMockPredictedData(filteredHistoricalData)
+        : filteredHistoricalData.map((point) => ({
+            ...point,
+            predicted: undefined,
+          }))
       : [];
 
-  const isCurrentlyOpen = isWithinRPCCHours();
   const currentDay = new Date().getDay();
   const hoursString = getRPCCHoursString(currentDay);
 
@@ -276,11 +290,9 @@ const HomePage = () => {
           </Text>
           <Button
             component={Link}
-            to="/reservations"
+            to="/time-slots"
             size="lg"
             variant="filled"
-            component={Link}
-            to="/time-slots"
             sx={{
               backgroundColor: "#000000",
               color: "#FFFFFF",
@@ -330,17 +342,6 @@ const HomePage = () => {
                           <Text size="sm" style={{ color: "#EF4444" }}>
                             Error loading data
                           </Text>
-                        ) : !isCurrentlyOpen ? (
-                          <Badge
-                            color="gray"
-                            variant="light"
-                            size="lg"
-                            style={{
-                              fontSize: "14px",
-                            }}
-                          >
-                            Closed
-                          </Badge>
                         ) : (
                           <Badge
                             color={getCrowdBadgeColor(currentCrowdLevel)}
@@ -351,17 +352,35 @@ const HomePage = () => {
                             }}
                           >
                             {currentCrowdLevel} Crowd
+                            {!isCurrentlyOpen ? " (Previous Day)" : ""}
                           </Badge>
                         )}
                       </Group>
-                      {!isCurrentlyOpen ? (
-                        <Text size="sm" style={{ color: "#6B5D4F" }}>
-                          RPCC is currently closed. Today's hours: {hoursString}
-                        </Text>
-                      ) : (
-                        <Text size="sm" style={{ color: "#6B5D4F" }}>
-                          Estimated Wait Time: {estimatedWaitTime}
-                        </Text>
+                      {!loading && !error && (
+                        <>
+                          {!isCurrentlyOpen ? (
+                            <>
+                              <Text
+                                size="xs"
+                                style={{
+                                  color: "#6B5D4F",
+                                  fontStyle: "italic",
+                                }}
+                              >
+                                RPCC is currently closed. Today's hours:{" "}
+                                {hoursString}
+                              </Text>
+                              <Text size="sm" style={{ color: "#6B5D4F" }}>
+                                Showing data from previous day's opening hours.
+                                Estimated Wait Time: {estimatedWaitTime}
+                              </Text>
+                            </>
+                          ) : (
+                            <Text size="sm" style={{ color: "#6B5D4F" }}>
+                              Estimated Wait Time: {estimatedWaitTime}
+                            </Text>
+                          )}
+                        </>
                       )}
                     </Stack>
                   </Paper>
@@ -373,7 +392,9 @@ const HomePage = () => {
                         weight={600}
                         style={{ color: "#000000", textTransform: "uppercase" }}
                       >
-                        Today's Traffic Levels
+                        {isCurrentlyOpen
+                          ? "Today's Traffic Levels"
+                          : "Previous Day's Traffic Levels"}
                       </Text>
                       <div style={{ width: "100%", height: "200px" }}>
                         {loading ? (

@@ -114,18 +114,16 @@ app.get("/api/crowd-levels", async (req, res) => {
             });
             
             // Store previous day data for prediction
-            const previousDayDataForPrediction = previousDayData.slice(-historicalData.length);
+            const previousDayDataForPrediction = previousDayData.slice(-11); // Use up to 11 points (max hours in a day)
             
-            // If we have previous day data, include it in the response
-            if (previousDayDataForPrediction.length > 0) {
-                const output: CrowdStats = {
-                    currentCrowdLevel: "Low", // Not used by frontend, kept for API compatibility
-                    estimatedWaitTime: "0-10 minutes", // Not used by frontend, kept for API compatibility
-                    historicalData: historicalData.length > 0 ? historicalData : [],
-                    previousDayData: previousDayDataForPrediction,
-                };
-                return res.json(output);
-            }
+            // Always return data, even if today's data is empty (for when closed)
+            const output: CrowdStats = {
+                currentCrowdLevel: "Low", // Not used by frontend, kept for API compatibility
+                estimatedWaitTime: "0-10 minutes", // Not used by frontend, kept for API compatibility
+                historicalData: historicalData.length > 0 ? historicalData : [],
+                previousDayData: previousDayDataForPrediction.length > 0 ? previousDayDataForPrediction : undefined,
+            };
+            return res.json(output);
         } catch (firebaseError) {
             console.log("Firebase query failed, using mock data:", firebaseError);
         }
@@ -464,29 +462,142 @@ app.post("/api/reservations", async (req, res) => {
     }
 });
 
-// GET /api/reservations/:userId - Get user's reservations
+// GET /api/timeSlots/:slotId - Get a single time slot by ID
+app.get("/api/timeSlots/:slotId", async (req, res) => {
+    console.log(`GET /api/timeSlots/${req.params.slotId} was called`);
+    try {
+        const { slotId } = req.params;
+        const slotDoc = await db.collection("timeSlots").doc(slotId).get();
+        
+        if (!slotDoc.exists) {
+            return res.status(404).json({ error: "Time slot not found" });
+        }
+        
+        const slotData = slotDoc.data();
+        const timeSlot: TimeSlot = {
+            id: slotDoc.id,
+            startTime: slotData?.startTime?.toDate ? slotData.startTime.toDate().toISOString() : slotData?.startTime,
+            endTime: slotData?.endTime?.toDate ? slotData.endTime.toDate().toISOString() : slotData?.endTime,
+            capacity: slotData?.capacity || 0,
+            currentBookings: 0, // Will be calculated if needed
+            status: "available",
+        };
+        
+        res.json(timeSlot);
+    } catch (error) {
+        console.error("Error fetching time slot:", error);
+        res.status(500).json({ error: "Failed to fetch time slot" });
+    }
+});
+
+// GET /api/reservations/:userId - Get user's reservations with time slot info
 app.get("/api/reservations/:userId", async (req, res) => {
     console.log(`GET /api/reservations/${req.params.userId} was called`);
     try {
         const { userId } = req.params;
         
+        // First, get all reservations for the user (without orderBy to avoid index requirement)
         const reservationsSnapshot = await db
             .collection("reservations")
             .where("userId", "==", userId)
-            .orderBy("createdAt", "desc")
+            .where("status", "==", "active")
             .get();
         
-        const reservations: Reservation[] = [];
-        reservationsSnapshot.forEach((doc) => {
-            reservations.push({
+        console.log(`Found ${reservationsSnapshot.size} active reservations for user ${userId}`);
+        
+        const reservations: (Reservation & { timeSlot?: TimeSlot })[] = [];
+        
+        // Fetch time slot info for each reservation
+        for (const doc of reservationsSnapshot.docs) {
+            const data = doc.data();
+            const reservation: Reservation & { timeSlot?: TimeSlot } = {
                 id: doc.id,
-                ...doc.data(),
-            } as Reservation);
+                userId: data.userId,
+                userName: data.userName,
+                slotId: data.slotId,
+                status: data.status,
+                createdAt: data.createdAt,
+            };
+            
+            // Fetch the time slot details
+            try {
+                const slotDoc = await db.collection("timeSlots").doc(data.slotId).get();
+                if (slotDoc.exists) {
+                    const slotData = slotDoc.data();
+                    reservation.timeSlot = {
+                        id: slotDoc.id,
+                        startTime: slotData?.startTime?.toDate ? slotData.startTime.toDate().toISOString() : slotData?.startTime,
+                        endTime: slotData?.endTime?.toDate ? slotData.endTime.toDate().toISOString() : slotData?.endTime,
+                        capacity: slotData?.capacity || 0,
+                        currentBookings: 0,
+                        status: "available",
+                    };
+                }
+            } catch (slotError) {
+                console.error(`Error fetching time slot ${data.slotId}:`, slotError);
+            }
+            
+            reservations.push(reservation);
+        }
+        
+        // Sort in memory by createdAt (descending)
+        reservations.sort((a, b) => {
+            const aTime = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 
+                         a.createdAt?.seconds ? a.createdAt.seconds * 1000 :
+                         new Date(a.createdAt as any).getTime();
+            const bTime = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 
+                         b.createdAt?.seconds ? b.createdAt.seconds * 1000 :
+                         new Date(b.createdAt as any).getTime();
+            return bTime - aTime; // Descending order
         });
         
+        console.log(`Returning ${reservations.length} reservations`);
         res.json(reservations);
     } catch (error) {
         console.error("Error fetching reservations:", error);
-        res.status(500).json({ error: "Failed to fetch reservations" });
+        // Log more details about the error
+        if (error instanceof Error) {
+            console.error("Error message:", error.message);
+            console.error("Error stack:", error.stack);
+        }
+        res.status(500).json({ error: "Failed to fetch reservations: " + (error instanceof Error ? error.message : "Unknown error") });
+    }
+});
+
+// DELETE /api/reservations/:reservationId - Cancel a reservation
+app.delete("/api/reservations/:reservationId", async (req, res) => {
+    console.log(`DELETE /api/reservations/${req.params.reservationId} was called`);
+    try {
+        const { reservationId } = req.params;
+        const { userId } = req.body; // User ID to verify ownership
+        
+        if (!userId) {
+            return res.status(400).json({ error: "Missing userId in request body" });
+        }
+        
+        // Get the reservation
+        const reservationRef = db.collection("reservations").doc(reservationId);
+        const reservationDoc = await reservationRef.get();
+        
+        if (!reservationDoc.exists) {
+            return res.status(404).json({ error: "Reservation not found" });
+        }
+        
+        const reservationData = reservationDoc.data();
+        
+        // Verify the reservation belongs to the user
+        if (reservationData?.userId !== userId) {
+            return res.status(403).json({ error: "You can only cancel your own reservations" });
+        }
+        
+        // Update reservation status to cancelled
+        await reservationRef.update({
+            status: "cancelled",
+        });
+        
+        res.json({ success: true, message: "Reservation cancelled successfully" });
+    } catch (error) {
+        console.error("Error cancelling reservation:", error);
+        res.status(500).json({ error: "Failed to cancel reservation" });
     }
 });
