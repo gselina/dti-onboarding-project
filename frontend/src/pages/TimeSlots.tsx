@@ -62,11 +62,14 @@ const TimeSlots = () => {
     if (user) {
       loadTimeSlots();
       loadUserReservations();
-      // Refresh every 30 seconds
-      const interval = setInterval(() => {
-        loadTimeSlots();
-        loadUserReservations();
-      }, 30000);
+      // Refresh every 5 minutes (reduced from 30 seconds to save Firebase quota)
+      const interval = setInterval(
+        () => {
+          loadTimeSlots();
+          loadUserReservations();
+        },
+        5 * 60 * 1000
+      );
       return () => clearInterval(interval);
     }
   }, [user]);
@@ -359,13 +362,23 @@ const TimeSlots = () => {
   }
 
   return (
-    <div className="time-slots-page">
+    <div
+      className="time-slots-page"
+      style={{ paddingLeft: 55, paddingRight: 55 }}
+    >
       <Container fluid py="xl">
         <Stack spacing="xl">
           {/* Day Tabs */}
           <Tabs
             value={activeDay.toString()}
             onTabChange={(value) => setActiveDay(Number(value))}
+            styles={{
+              tab: {
+                "&[data-active]": {
+                  borderBottomColor: "#22C55E", // Green color for active tab indicator
+                },
+              },
+            }}
           >
             <Tabs.List className="day-tabs">
               {slotsByDay.map((day, index) => (
@@ -476,6 +489,21 @@ const TimeSlots = () => {
                             color={isReserved ? "red" : undefined}
                             variant={isReserved ? "outline" : "filled"}
                             leftIcon={isReserved ? <X size={16} /> : undefined}
+                            sx={
+                              !isReserved
+                                ? {
+                                    backgroundColor: "#000000",
+                                    color: "#FFFFFF",
+                                    "&:hover": {
+                                      backgroundColor: "#333333",
+                                    },
+                                    "&:disabled": {
+                                      backgroundColor: "#CCCCCC",
+                                      color: "#666666",
+                                    },
+                                  }
+                                : undefined
+                            }
                           >
                             {isFull
                               ? "Full"

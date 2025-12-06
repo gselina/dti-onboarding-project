@@ -139,6 +139,66 @@ const ReservationsPage = () => {
     });
   };
 
+  const formatDate = (
+    timestamp:
+      | string
+      | Date
+      | { toDate?: () => Date; seconds?: number }
+      | undefined
+  ): string => {
+    if (!timestamp) return "N/A";
+    let date: Date;
+    if (timestamp instanceof Date) {
+      date = timestamp;
+    } else if (typeof timestamp === "string") {
+      date = new Date(timestamp);
+    } else if (
+      timestamp &&
+      typeof timestamp === "object" &&
+      "toDate" in timestamp &&
+      timestamp.toDate
+    ) {
+      date = timestamp.toDate();
+    } else if (
+      timestamp &&
+      typeof timestamp === "object" &&
+      "seconds" in timestamp &&
+      timestamp.seconds
+    ) {
+      date = new Date(timestamp.seconds * 1000);
+    } else {
+      return "N/A";
+    }
+    if (isNaN(date.getTime())) return "N/A";
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dayAfter = new Date(today);
+    dayAfter.setDate(dayAfter.getDate() + 2);
+
+    const dateToCheck = new Date(date);
+    dateToCheck.setHours(0, 0, 0, 0);
+
+    if (dateToCheck.getTime() === today.getTime()) {
+      return "Today";
+    } else if (dateToCheck.getTime() === tomorrow.getTime()) {
+      return "Tomorrow";
+    } else if (dateToCheck.getTime() === dayAfter.getTime()) {
+      return dateToCheck.toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+      });
+    }
+    return dateToCheck.toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
   const handleSignOut = async () => {
     try {
       await signOut(auth);
@@ -274,10 +334,19 @@ const ReservationsPage = () => {
                           </Badge>
                         </Group>
                         {reservation.timeSlot ? (
-                          <Text size="sm" style={{ color: "#6B5D4F" }}>
-                            {formatTime(reservation.timeSlot.startTime)} -{" "}
-                            {formatTime(reservation.timeSlot.endTime)}
-                          </Text>
+                          <>
+                            <Text
+                              size="sm"
+                              weight={500}
+                              style={{ color: "#000000" }}
+                            >
+                              {formatDate(reservation.timeSlot.startTime)}
+                            </Text>
+                            <Text size="sm" style={{ color: "#6B5D4F" }}>
+                              {formatTime(reservation.timeSlot.startTime)} -{" "}
+                              {formatTime(reservation.timeSlot.endTime)}
+                            </Text>
+                          </>
                         ) : (
                           <Text size="sm" style={{ color: "#6B5D4F" }}>
                             Slot ID: {reservation.slotId}

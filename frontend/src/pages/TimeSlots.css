@@ -9,3 +9,8 @@
     padding-left: 2rem;
     padding-right: 2rem;
   }
+
+  /* Green indicator bar for active day tab */
+  .time-slots-page .mantine-Tabs-tab[data-active] {
+    border-bottom-color: #22C55E !important;
+  }

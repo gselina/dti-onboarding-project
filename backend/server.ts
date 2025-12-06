@@ -329,66 +329,102 @@ app.listen(port, hostname, () => {
     console.log("Listening");
 });
 
-// GET /api/timeSlots - Get all time slots with reservation counts
+// GET /api/timeSlots - Get time slots with reservation counts (only next 3 days to reduce reads)
 app.get("/api/timeSlots", async (req, res) => {
     console.log("GET /api/timeSlots was called");
     try {
-        // Get all time slots
-        const slotsSnapshot = await db.collection("timeSlots").get();
+        const now = new Date();
+        const threeDaysFromNow = new Date(now);
+        threeDaysFromNow.setDate(threeDaysFromNow.getDate() + 3);
+        threeDaysFromNow.setHours(23, 59, 59, 999);
         
-        // Get all active reservations
-        const reservationsSnapshot = await db
-            .collection("reservations")
-            .where("status", "==", "active")
+        const nowTimestamp = admin.firestore.Timestamp.fromDate(now);
+        const threeDaysTimestamp = admin.firestore.Timestamp.fromDate(threeDaysFromNow);
+        
+        // Only get time slots for the next 3 days (reduces reads significantly)
+        const slotsSnapshot = await db
+            .collection("timeSlots")
+            .where("startTime", ">=", nowTimestamp)
+            .where("startTime", "<=", threeDaysTimestamp)
+            .orderBy("startTime", "asc")
             .get();
         
-        // Count reservations per slot
-        const reservationCounts: { [slotId: string]: number } = {};
-        reservationsSnapshot.forEach((doc) => {
-            const reservation = doc.data();
-            const slotId = reservation.slotId;
-            reservationCounts[slotId] = (reservationCounts[slotId] || 0) + 1;
-        });
+        console.log(`Found ${slotsSnapshot.size} time slots in next 3 days`);
         
-        // Combine time slots with reservation counts
+        if (slotsSnapshot.size === 0) {
+            return res.json([]);
+        }
+        
+        // Get slot IDs to query reservations for only these slots
+        const slotIds = slotsSnapshot.docs.map(doc => doc.id);
+        
+        // Get reservations only for these specific slots (much more efficient)
+        // Firestore 'in' query limit is 10, so we need to batch if more than 10 slots
+        const reservationCounts: { [slotId: string]: number } = {};
+        
+        if (slotIds.length > 0) {
+            // Process in batches of 10 (Firestore 'in' query limit)
+            for (let i = 0; i < slotIds.length; i += 10) {
+                const batch = slotIds.slice(i, i + 10);
+                const reservationsSnapshot = await db
+                    .collection("reservations")
+                    .where("slotId", "in", batch)
+                    .where("status", "==", "active")
+                    .get();
+                
+                reservationsSnapshot.forEach((doc) => {
+                    const reservation = doc.data();
+                    const slotId = reservation.slotId;
+                    reservationCounts[slotId] = (reservationCounts[slotId] || 0) + 1;
+                });
+            }
+        }
+        
+        // Combine time slots with reservation counts, filtering to only RPCC operation hours
         const timeSlots: TimeSlot[] = [];
         slotsSnapshot.forEach((doc) => {
             const slotData = doc.data();
+            
+            // Get the start time as a Date object
+            const startTime = slotData.startTime?.toDate 
+                ? slotData.startTime.toDate() 
+                : new Date(slotData.startTime);
+            
+            // Only include slots within RPCC operation hours
+            if (!isWithinRPCCHours(startTime)) {
+                return; // Skip this slot
+            }
+            
             const reservationCount = reservationCounts[doc.id] || 0;
             const capacity = slotData.capacity || 0;
             
-                        // Determine status based on capacity
-                        let status: "available" | "busy" | "full";
-                        if (reservationCount >= capacity) {
-                            status = "full";
-                        } else if (reservationCount >= capacity * 0.8) {
-                            status = "busy";
-                        } else {
-                            status = "available";
-                        }
-                        
-                        timeSlots.push({
-                            id: doc.id,
-                            startTime: slotData.startTime?.toDate ? slotData.startTime.toDate().toISOString() : slotData.startTime,
-                            endTime: slotData.endTime?.toDate ? slotData.endTime.toDate().toISOString() : slotData.endTime,
-                            capacity: capacity,
-                            currentBookings: reservationCount,
-                            status: status,
-                        });
-                    });
-                    
-                    // Sort by start time
-                    timeSlots.sort((a, b) => {
-                        const aTime = a.startTime.toDate ? a.startTime.toDate() : new Date(a.startTime);
-                        const bTime = b.startTime.toDate ? b.startTime.toDate() : new Date(b.startTime);
-                        return aTime.getTime() - bTime.getTime();
-                    });
-                    
-                    res.json(timeSlots);
-                } catch (error) {
-                    console.error("Error fetching time slots:", error);
-                    res.status(500).json({ error: "Failed to fetch time slots" });
-                }
+            // Determine status based on capacity
+            let status: "available" | "busy" | "full";
+            if (reservationCount >= capacity) {
+                status = "full";
+            } else if (reservationCount >= capacity * 0.8) {
+                status = "busy";
+            } else {
+                status = "available";
+            }
+            
+            timeSlots.push({
+                id: doc.id,
+                startTime: slotData.startTime?.toDate ? slotData.startTime.toDate().toISOString() : slotData.startTime,
+                endTime: slotData.endTime?.toDate ? slotData.endTime.toDate().toISOString() : slotData.endTime,
+                capacity: capacity,
+                currentBookings: reservationCount,
+                status: status,
+            });
+        });
+        
+        // Already sorted by startTime from query
+        console.log(`Returning ${timeSlots.length} time slots within RPCC operation hours`);
+        res.json(timeSlots);
+    } catch (error) {
+        console.error("Error fetching time slots:", error);
+        res.status(500).json({ error: "Failed to fetch time slots" });
+    }
             });
 // POST /api/reservations - Create a reservation
 app.post("/api/reservations", async (req, res) => {

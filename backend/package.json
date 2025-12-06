@@ -28,6 +28,10 @@
         "populate:crowd": "ts-node populateCrowdData.ts",
         "populate:packages": "ts-node populatePackageStats.ts",
         "populate:all": "ts-node populateCrowdData.ts && ts-node populatePackageStats.ts",
-         "populate-slots": "ts-node scripts/populateTimeSlots.ts"
+        "populate-slots": "ts-node scripts/populateTimeSlots.ts",
+        "populate-reservations": "ts-node populateReservations.ts",
+        "delete-mock-reservations": "ts-node deleteMockReservations.ts",
+        "update-capacity": "ts-node updateTimeSlotCapacity.ts",
+        "cleanup": "ts-node cleanupOldData.ts"
     }
 }
