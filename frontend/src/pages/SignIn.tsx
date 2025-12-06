@@ -14,7 +14,8 @@ import {
   GoogleAuthProvider,
   getAdditionalUserInfo,
 } from "firebase/auth";
-import { auth } from "../config/firebase";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore"; // ADD THIS
+import { auth, db } from "../config/firebase"; // UPDATE: Add db import
 
 const SignInPage = () => {
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +46,34 @@ const SignInPage = () => {
       console.log("User signed in with Google successfully:", user);
       console.log("Google Access Token:", token);
       console.log("Additional user info:", additionalUserInfo);
+
+      // Define admin email whitelist - UPDATE THIS WITH YOUR ADMIN EMAILS
+      const ADMIN_EMAILS = [
+        "ei83@cornell.edu",
+        // Add more admin emails here
+      ];
+      
+      // Optional: Use email domain for all staff emails
+      // Uncomment if you want all @university.edu emails to be admins
+      // const ADMIN_EMAIL_DOMAIN = "@university.edu";
+      
+      const userEmail = user.email || "";
+      
+      // Check if user is in admin whitelist
+      const isAdminEmail = ADMIN_EMAILS.some(
+        email => userEmail.toLowerCase() === email.toLowerCase()
+      );
+      const isAdmin = isAdminEmail;
+      // Create or update user document in Firestore with role
+      await setDoc(doc(db, "users", user.uid), {
+        email: user.email,
+        displayName: user.displayName,
+        role: isAdmin ? "admin" : "user", // Auto-assign role
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true }); // merge: true prevents overwriting existing data
+
+      console.log(`User ${user.email} assigned role: ${isAdmin ? "admin" : "user"}`);
 
       // Redirect to home page after successful authentication
       navigate("/");

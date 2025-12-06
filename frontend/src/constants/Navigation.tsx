@@ -2,7 +2,7 @@ import HomePage from "../pages/Home";
 import TimeSlots from "../pages/TimeSlots"; 
 import SignInPage from "../pages/SignIn";
 import ReservationsPage from "../pages/Reservations";
-
+import AdminPage from "../pages/Admin"; // ADD THIS IMPORT
 /**
  * Backend base path for API calls.
  * For local development, use: 'http://localhost:8080/api'
@@ -37,5 +37,10 @@ export const PATHS: {
     link: "/time-slots",
     label: "Book Time Slot",
     element: <TimeSlots />,
+  },
+  {
+    link: "/admin",
+    label: "Admin", // ADD THIS ROUTE
+    element: <AdminPage />,
   },
 ];
