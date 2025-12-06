@@ -67,6 +67,24 @@ export async function fetchTimeSlots(): Promise<TimeSlot[]> {
   }
 }
 
+// Fetch all time slots for admin (no operation hours filter)
+export async function fetchAdminTimeSlots(): Promise<TimeSlot[]> {
+  const url = `${BACKEND_BASE_PATH}/admin/timeSlots`;
+  console.log("Fetching admin time slots from:", url);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch admin time slots: ${response.status}`);
+    }
+    const data = await response.json();
+    console.log("Admin time slots data received:", data);
+    return data;
+  } catch (error) {
+    console.error("Error fetching admin time slots:", error);
+    throw error;
+  }
+}
+
 export async function createReservation(
   userId: string,
   userName: string,
@@ -149,6 +167,60 @@ export async function cancelReservation(
     console.log("Reservation cancelled successfully");
   } catch (error) {
     console.error("Error cancelling reservation:", error);
+    throw error;
+  }
+}
+
+export async function createTimeSlot(
+  startTime: string,
+  endTime: string,
+  capacity: number = 40
+): Promise<TimeSlot> {
+  const url = `${BACKEND_BASE_PATH}/timeSlots`;
+  console.log("Creating time slot:", { startTime, endTime, capacity });
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        startTime,
+        endTime,
+        capacity,
+      }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || `Failed to create time slot: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log("Time slot created:", data);
+    return data;
+  } catch (error) {
+    console.error("Error creating time slot:", error);
+    throw error;
+  }
+}
+
+export async function deleteTimeSlot(slotId: string): Promise<void> {
+  const url = `${BACKEND_BASE_PATH}/timeSlots/${slotId}`;
+  console.log("Deleting time slot:", slotId);
+  try {
+    const response = await fetch(url, {
+      method: "DELETE",
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || `Failed to delete time slot: ${response.status}`);
+    }
+    
+    console.log("Time slot deleted successfully");
+  } catch (error) {
+    console.error("Error deleting time slot:", error);
     throw error;
   }
 }

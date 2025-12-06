@@ -50,30 +50,37 @@ const SignInPage = () => {
       // Define admin email whitelist - UPDATE THIS WITH YOUR ADMIN EMAILS
       const ADMIN_EMAILS = [
         "ei83@cornell.edu",
+        "sg2626@cornell.edu",
         // Add more admin emails here
       ];
-      
+
       // Optional: Use email domain for all staff emails
       // Uncomment if you want all @university.edu emails to be admins
       // const ADMIN_EMAIL_DOMAIN = "@university.edu";
-      
+
       const userEmail = user.email || "";
-      
+
       // Check if user is in admin whitelist
       const isAdminEmail = ADMIN_EMAILS.some(
-        email => userEmail.toLowerCase() === email.toLowerCase()
+        (email) => userEmail.toLowerCase() === email.toLowerCase()
       );
       const isAdmin = isAdminEmail;
       // Create or update user document in Firestore with role
-      await setDoc(doc(db, "users", user.uid), {
-        email: user.email,
-        displayName: user.displayName,
-        role: isAdmin ? "admin" : "user", // Auto-assign role
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      }, { merge: true }); // merge: true prevents overwriting existing data
+      await setDoc(
+        doc(db, "users", user.uid),
+        {
+          email: user.email,
+          displayName: user.displayName,
+          role: isAdmin ? "admin" : "user", // Auto-assign role
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      ); // merge: true prevents overwriting existing data
 
-      console.log(`User ${user.email} assigned role: ${isAdmin ? "admin" : "user"}`);
+      console.log(
+        `User ${user.email} assigned role: ${isAdmin ? "admin" : "user"}`
+      );
 
       // Redirect to home page after successful authentication
       navigate("/");
